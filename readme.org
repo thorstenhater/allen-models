@@ -1,4 +1,5 @@
 #+TITLE: Readme
 
-- Build and install arbor w/ allen catalogue from here [[https://github.com/thorstenhater/arbor/tree/nmodl/allen]]
-- Download input files from modeldb ~bash get.sh~
+- Build and install arbor w/ allen catalogue from here [[https://github.com/thorstenhater/arbor/tree/nmodl/allen]].
+- Download input files from modeldb ~bash get.sh~.
+- Run python scripts.
