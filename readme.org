@@ -1,0 +1,4 @@
+#+TITLE: Readme
+
+- Download input files from modeldb ~bash get.sh~
+-
