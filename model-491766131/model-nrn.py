@@ -74,7 +74,7 @@ def run_arb(fit, swc, current, t_start, t_stop):
             print(f'  * region {region:6} species {ion:5}: {v:10}')
             cell.paint(region, arbor.ion(ion, rev_pot=float(v)))
 
-    cell.set_ion('ca', int_con=5e-5, ext_con=2.0, method=arbor.mechanism('nernst/x=ca'))
+    cell.set_ion('ca', int_con=5e-5, ext_con=2.0, method=arbor.mechanism('default_nernst/x=ca'))
 
     # Setup mechanisms and parameters
     print('Setting up mechanisms')
@@ -86,7 +86,7 @@ def run_arb(fit, swc, current, t_start, t_stop):
                 m = arbor.mechanism(mech, vs)
                 cell.paint(region, m)
             else:
-                m = arbor.mechanism('pas', {'e': vs['e'], 'g': vs['g']})
+                m = arbor.mechanism('default_pas', {'e': vs['e'], 'g': vs['g']})
                 cell.paint(region, m)
                 cell.paint(region, cm=vs["cm"]/100, rL=vs["Ra"])
             print("OK")
@@ -98,7 +98,12 @@ def run_arb(fit, swc, current, t_start, t_stop):
 
     # Run the simulation, collecting voltages
     print('Simulation', end=' ')
+    default = arbor.default_catalogue()
+    catalogue = arbor.allen_catalogue()
+    catalogue.insert(default, 'default_')
+    
     model = arbor.single_cell_model(cell)
+    model.properties.catalogue = catalogue
     model.probe('voltage', 'center', frequency=200000)
     model.run(tfinal=t_start + t_stop, dt=1000/200000)
     print('DONE')
@@ -158,20 +163,21 @@ current  = 0.15
 t_start  = 200
 t_stop   = 1200
 
-fg, ax = plt.subplots()
+g, ax = plt.subplots()
 ax.bar(x=[t_start], height=[200], width=[t_stop - t_start], bottom=[-100], align='edge', color='0.8', label='Stimulus')
 
 t0 = time.perf_counter()
 ts, vs = run_nrn(manifest, current, t_start, t_stop)
 t1 = time.perf_counter()
 print(f"t_nrn={t1 - t0}")
+
 ax.plot(ts, vs*1000, label='Allen', ls='-')
 
-for _ in range(5):
-    t2 = time.perf_counter()
-    ts, vs = run_arb(fit, swc, current, t_start, t_stop)
-    t3 = time.perf_counter()
-    print(f"t_arb={t3 - t2}")
+t2 = time.perf_counter()
+ts, vs = run_arb(fit, swc, current, t_start, t_stop)
+t3 = time.perf_counter()
+print(f"t_arb={t3 - t2}")
+
 ax.plot(ts, vs, ls='-', label='Arbor')
 
 ax.set_ylabel('U/mV')

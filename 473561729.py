@@ -6,90 +6,130 @@ from collections import defaultdict
 from pprint import pprint
 import arbor
 import json
+import numpy as np
 
-# Load tree and build morphology
-tree = arbor.load_swc('473561729/Gad2-IRES-Cre_Ai14_IVSCC_-172679.03.01.01_471076778_m.swc')
-morph = arbor.morphology(tree, spherical_root=True)
-
-# Label regions
-labels = arbor.label_dict({'soma': '(tag 1)',
-                           'axon': '(tag 2)',
-                           'dend': '(tag 3)',
-                           'apic': '(tag 4)',
-                           'center': '(location 0 0.5)'})
-
-# Build cell and attach Clamp and Detector
-cell = arbor.cable_cell(tree, labels)
-
-cell.place('center', arbor.spike_detector(-10))      # from tutorial
-cell.place('center', arbor.iclamp(200, 1000, 0.270)) # from modeldb
-
-# read json file and proceed to set parameters and mechanisms
-with open('473561729/473561729_fit.json') as fd:
-    fit = json.load(fd)
+ts = []
+volts = {}
+counts = {}
+for i in [0.130, 0.190, 0.270]:
+    # Load tree and build morphology
+    tree = arbor.load_swc('473561729/Gad2-IRES-Cre_Ai14_IVSCC_-172679.03.01.01_471076778_m.swc')
 
 
-# set global values
-properties = fit['conditions'][0]
-T  = properties['celsius'] + 273.15
-Vm = properties['v_init']
-cell.set_properties(tempK=T, Vm=Vm)
 
-# Set reversal potentials
-for kv in properties['erev']:
-    region = kv['section']
-    for k, v in kv.items():
-        if k == 'section':
-            continue
-        ion = k[1:]
-        print(f'Setting reversal potential for species {ion} to {v}')
-        cell.paint(region, arbor.ion(ion, rev_pot=float(v)))
+    # copy out the contents
+    p_axon = None
+    x0, y0, z0 = None, None, None
+    x1, y1, z1 = None, None, None
+    new = arbor.sample_tree()
+    for p, s in zip(tree.parents, tree.samples):
+        if s.tag != 2:
+            new.append(parent=p, x=s.loc.x, y=s.loc.y, z=s.loc.z, radius=s.loc.radius, tag=s.tag)
+        else:
+            if p_axon is None:
+                p_axon = p
+                x0, y0, z0 = s.loc.x, s.loc.y, s.loc.z
+            x1, y1, z1 = s.loc.x, s.loc.y, s.loc.z
 
-# Setup mechanisms and parameters
+    axon = new.append(p_axon, x0, y0, z0, 1, 2)
+    new.append(axon, x0 + 60 + tree.samples[0].loc.radius, y0, z0, 1, 2)
 
-## collect parameters in dict
-mechs = defaultdict(dict)
+    morph = arbor.morphology(tree, spherical_root=True)
 
-### Passive parameters
-pas = fit['passive'][0]
-e_pas  = pas['e_pas']
-ra_pas = pas['ra']
+    # Label regions
+    labels = arbor.label_dict({'soma': '(tag 1)',
+                               'axon': '(tag 2)',
+                               'dend': '(tag 3)',
+                               'apic': '(tag 4)',
+                               'center': '(location 0 0.5)'})
 
-for v in pas['cm']:
-    cm_pas = v['cm']
-    region = v['section']
-    print(f"{region:10} -> {'pas':10}: rL={ra_pas}, Vm={e_pas} cm={cm_pas}")
-    cell.paint(region, cm=cm_pas, rL=ra_pas, Vm=e_pas,)
+    # Build cell and attach Clamp and Detector
+    cell = arbor.cable_cell(tree, labels)
 
-### Remaining parameters
-for block in fit['genome']:
-    mech   = block['mechanism'] or 'pas'
-    region = block['section']
-    name   = block['name'][:-(len(mech) + 1)]
-    mechs[(mech, region)][name] = block['value']
+    cell.place('center', arbor.iclamp(200, 1200, i))
+    cell.place('center', arbor.spike_detector(-40))
 
-## Now paint the cell using the dict
-for (mech, region), vs in mechs.items():
-    print(f"{region:10} -> {mech:10}: {str(vs):60}", end=' ')
-    try:
-        m = arbor.mechanism(mech, vs)
-        cell.paint(region, m)
-        print("OK")
-    except Exception as e:
-        print("ERROR")
-        print("  ->", e)
+    # read json file and proceed to set parameters and mechanisms
+    with open('473561729/473561729_fit.json') as fd:
+        fit = json.load(fd)
 
-# Run the simulation, collecting voltages
-print('Simulation', end=' ')
-model = arbor.single_cell_model(cell)
-model.probe('voltage', 'center', frequency=100)
-model.run(tfinal=1200)
-print('DONE')
+    # set global values
+    print('Setting global parameters')
+    properties = fit['conditions'][0]
+    T  = properties['celsius'] + 273.15
+    print(f"  * T  =  {T}K = {T - 273.15}C")
+    Vm = properties['v_init']
+    print(f"  * Vm =  {Vm}mV")
+    cell.set_properties(tempK=T, Vm=Vm, rL=ra)
+
+    # Set reversal potentials
+    print("Setting reversal potential for")
+    for kv in properties['erev']:
+        region = kv['section']
+        for k, v in kv.items():
+            if k == 'section':
+                continue
+            ion = k[1:]
+            print(f'  * species {ion:5}: {v:10}')
+            cell.paint(region, arbor.ion(ion, rev_pot=float(v)))
+
+    # Setup mechanisms and parameters
+
+    ## collect parameters in dict
+    mechs = defaultdict(dict)
+
+    ### Passive parameters
+    pas = fit['passive'][0]
+    e_pas  = pas['e_pas']
+    ra_pas = pas['ra']#/100
+
+    print('Setting passive parameters')
+    for v in pas['cm']:
+        cm_pas = float(v['cm'])/100
+        region = v['section']
+        print(f"  * {region:10} -> rL={ra_pas}, Vm={e_pas} cm={cm_pas}")
+        cell.paint(region, cm=cm_pas, rL=ra_pas, Vm=e_pas,)
+
+    ### Remaining parameters
+    for block in fit['genome']:
+        mech   = block['mechanism'] or 'pas'
+        region = block['section']
+        name   = block['name'][:-(len(mech) + 1)]
+        mechs[(mech, region)][name] = block['value']
+
+    print('Setting up mechanisms')
+    ## Now paint the cell using the dict
+    for (mech, region), vs in mechs.items():
+        print(f"  * {region:10} -> {mech:10}: {str(vs):60}", end=' ')
+        try:
+            m = arbor.mechanism(mech, vs)
+            cell.paint(region, m)
+            print("OK")
+        except Exception as e:
+            print("ERROR")
+            print("  ->", e)
+
+    # Run the simulation, collecting voltages
+    print('Simulation', end=' ')
+    model = arbor.single_cell_model(cell)
+    model.probe('voltage', 'center', frequency=10000)
+    model.run(tfinal=1500)
+    print('DONE')
+    for t in model.traces:
+        ts = t.time[:]
+        volts[i] = t.value[:]
+        break
+    spikes = np.array(model.spikes)
+    count = len(spikes[(spikes >= 200) & (spikes <= 300)])
+    print('Counted spikes', count)
+    counts[i] = count
 
 # Plot voltage traces
 fg, ax = plt.subplots()
-for t in model.traces:
-    print(t.time, t.value)
-    ax.plot(t.time, t.value, ls='-')
-    break
+for k, v in volts.items():
+    ax.plot(ts, v, ls='-', label=f"I={k}mA Spikes={counts[k]}")
+    ax.set_xlim(left=200, right=300)
+ax.set_ylabel('U/mV')
+ax.set_xlabel('t/ms')
+ax.legend()
 plt.show()
