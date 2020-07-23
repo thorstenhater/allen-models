@@ -1,5 +1,6 @@
 #+TITLE: Readme
 
-- Build and install arbor w/ allen catalogue from here [[https://github.com/thorstenhater/arbor/tree/nmodl/allen]].
-- Download input files from modeldb ~bash get.sh~.
-- Run python scripts.
+- Build and install arbor master
+- go to model-...31
+- run `python3 model-nrn.py manifest.json`
+- swap around symlinks as desired
