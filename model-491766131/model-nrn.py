@@ -16,7 +16,7 @@ from allensdk.model.biophys_sim.config import Config
 from allensdk.model.biophysical.utils import create_utils
 
 def run_arb(fit, swc, current, t_start, t_stop):
-    tree = arbor.load_swc(swc)
+    tree = arbor.load_swc_allen(swc, no_gaps=False)
 
     # Load mechanism data
     with open(fit) as fd:
@@ -47,7 +47,7 @@ def run_arb(fit, swc, current, t_start, t_stop):
     Vm = properties['v_init']
 
     # Run simulation
-    morph = arbor.morphology(tree, spherical_root=True)
+    morph = arbor.morphology(tree)
 
     # Build cell and attach Clamp and Detector
     cell = arbor.cable_cell(morph, labels)
@@ -100,7 +100,7 @@ def run_arb(fit, swc, current, t_start, t_stop):
     print('Simulation', end=' ')
     default = arbor.default_catalogue()
     catalogue = arbor.allen_catalogue()
-    catalogue.insert(default, 'default_')
+    catalogue.extend(default, 'default_')
     
     model = arbor.single_cell_model(cell)
     model.properties.catalogue = catalogue
@@ -163,26 +163,20 @@ current  = 0.15
 t_start  = 200
 t_stop   = 1200
 
-g, ax = plt.subplots()
-ax.bar(x=[t_start], height=[200], width=[t_stop - t_start], bottom=[-100], align='edge', color='0.8', label='Stimulus')
+import pandas as pd
 
 t0 = time.perf_counter()
 ts, vs = run_nrn(manifest, current, t_start, t_stop)
 t1 = time.perf_counter()
 print(f"t_nrn={t1 - t0}")
 
-ax.plot(ts, vs*1000, label='Allen', ls='-')
+nrn = pd.DataFrame({'t/ms': ts, 'U/mV': vs})
+nrn.to_csv('nrn.csv')
 
 t2 = time.perf_counter()
 ts, vs = run_arb(fit, swc, current, t_start, t_stop)
 t3 = time.perf_counter()
 print(f"t_arb={t3 - t2}")
 
-ax.plot(ts, vs, ls='-', label='Arbor')
-
-ax.set_ylabel('U/mV')
-ax.set_xlabel('t/ms')
-ax.set_xlim(left=0, right=t_start + t_stop)
-ax.set_ylim(bottom=-90, top=10)
-ax.legend()
-plt.show()
+arb = pd.DataFrame({'t/ms': ts, 'U/mV': vs})
+arb.to_csv('arb.csv')
